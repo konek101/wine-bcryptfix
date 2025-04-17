@@ -47,7 +47,8 @@ const struct ltc_cipher_descriptor rijndael_desc =
     6,
     16, 32, 16, 10,
     SETUP, ECB_ENC, ECB_DEC, ECB_TEST, ECB_DONE, ECB_KS,
-    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
+    aes_key_wrap, NULL  // Add key wrap/unwrap functions
 };
 
 const struct ltc_cipher_descriptor aes_desc =
@@ -56,8 +57,10 @@ const struct ltc_cipher_descriptor aes_desc =
     6,
     16, 32, 16, 10,
     SETUP, ECB_ENC, ECB_DEC, ECB_TEST, ECB_DONE, ECB_KS,
-    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    aes_key_wrap, NULL  // Add key wrap/unwrap functions
 };
+
 
 #else
 
@@ -88,6 +91,76 @@ const struct ltc_cipher_descriptor aes_enc_desc =
 
 #define __LTC_AES_TAB_C__
 #include "aes_tab.c"
+
+
+/**
+  AES Key Wrap (RFC3394/RFC3565)
+  @param skey       The scheduled AES key
+  @param pt         The plaintext key to wrap (multiple of 8 bytes)
+  @param ptlen      Length of plaintext (in 8-byte blocks)
+  @param ct         [out] The wrapped key
+  @param ctlen      [in/out] Length of output buffer / wrapped length
+  @return CRYPT_OK if successful
+*/
+int aes_key_wrap(symmetric_key *skey, const unsigned char *pt, unsigned long ptlen, 
+                unsigned char *ct, unsigned long *ctlen)
+{
+    unsigned char A[8], B[16], R[8];
+    unsigned long i, j;
+    int err;
+    
+    LTC_ARGCHK(skey != NULL);
+    LTC_ARGCHK(pt != NULL);
+    LTC_ARGCHK(ct != NULL);
+    LTC_ARGCHK(ctlen != NULL);
+
+    /* Check length requirements */
+    if (ptlen == 0 || ptlen > (ULONG_MAX/8) || (*ctlen < (ptlen + 1) * 8)) {
+        return CRYPT_INVALID_ARG;
+    }
+
+    /* Initialize A with IV */
+    A[0] = 0xA6;
+    A[1] = 0xA6;
+    A[2] = 0xA6;
+    A[3] = 0xA6;
+    A[4] = 0xA6;
+    A[5] = 0xA6;
+    A[6] = 0xA6;
+    A[7] = 0xA6;
+
+    /* Copy plaintext to output buffer */
+    XMEMCPY(ct + 8, pt, ptlen * 8);
+
+    /* Perform wrapping */
+    for (j = 0; j < 6; j++) {
+        for (i = 1; i <= ptlen; i++) {
+            /* B = A | R[i] */
+            XMEMCPY(B, A, 8);
+            XMEMCPY(B + 8, ct + 8 * i, 8);
+            
+            /* Encrypt B */
+            if ((err = rijndael_ecb_encrypt(B, B, skey)) != CRYPT_OK) {
+                return err;
+            }
+            
+            /* A = MSB64(B) ^ t where t = n*j+i */
+            XMEMCPY(A, B, 8);
+            A[7] ^= (unsigned char)(ptlen * j + i);
+            
+            /* R[i] = LSB64(B) */
+            XMEMCPY(ct + 8 * i, B + 8, 8);
+        }
+    }
+
+    /* Copy A to first 8 bytes of output */
+    XMEMCPY(ct, A, 8);
+    *ctlen = (ptlen + 1) * 8;
+
+    return CRYPT_OK;
+}
+
+
 
 static ulong32 setup_mix(ulong32 temp)
 {

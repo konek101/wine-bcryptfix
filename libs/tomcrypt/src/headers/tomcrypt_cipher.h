@@ -326,6 +326,9 @@ typedef struct {
 } symmetric_LRW;
 #endif
 
+int aes_key_wrap(symmetric_key *skey, const unsigned char *pt, unsigned long ptlen, 
+   unsigned char *ct, unsigned long *ctlen);
+
 #ifdef LTC_F8_MODE
 /** A block cipher F8 structure */
 typedef struct {
