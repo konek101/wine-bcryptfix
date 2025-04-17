@@ -32,5 +32,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.version }}
-          files: /github/workflow/result/wine-astro-wow64.deb
+          files: ${{ github.workspace }}/result/wine-astro-wow64.deb
           token: ${{ secrets.GITHUB_TOKEN }}
