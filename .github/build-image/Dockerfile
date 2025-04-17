@@ -76,4 +76,4 @@ COPY entrypoint.sh /entrypoint.sh
 COPY build-wine.sh /build-wine.sh
 COPY control /control
 RUN chmod +x /entrypoint.sh && chmod +x /build-wine.sh
-ENTRYPOINT [ "entrypoint.sh" ]
+ENTRYPOINT [ "/entrypoint.sh" ]
