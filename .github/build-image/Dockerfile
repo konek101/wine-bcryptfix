@@ -70,7 +70,7 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
                        gstreamer1.0-libav:amd64 gstreamer1.0-libav:i386 \
                        gstreamer1.0-plugins-base:amd64 gstreamer1.0-plugins-good:amd64 gstreamer1.0-plugins-bad:amd64 gstreamer1.0-plugins-ugly:amd64 \
                        gstreamer1.0-plugins-base:i386 gstreamer1.0-plugins-good:i386 gstreamer1.0-plugins-bad:i386 gstreamer1.0-plugins-ugly:i386 && \
-    apt-get clean && 
+    apt-get clean
 
 COPY entrypoint.sh /entrypoint.sh
 COPY build-wine.sh /build-wine.sh
