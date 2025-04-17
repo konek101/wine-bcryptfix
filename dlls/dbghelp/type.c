@@ -445,17 +445,69 @@ struct symt_typedef* symt_new_typedef(struct module* module, symref_t ref,
     return sym;
 }
 
+struct sym_modfmt_type_enum
+{
+    struct module *module;
+    SYMBOL_INFO *sym_info;
+    PSYM_ENUMERATESYMBOLS_CALLBACK cb;
+    void *user;
+    const char *type_name;
+};
+
+static BOOL sym_modfmt_type_enum_cb(symref_t symref, const char *name, void *user)
+{
+    struct sym_modfmt_type_enum *info = user;
+    DWORD64 size;
+
+    if (info->type_name && !SymMatchStringA(name, info->type_name, TRUE)) return TRUE;
+    info->sym_info->TypeIndex = symt_symref_to_index(info->module, symref);
+    info->sym_info->Index = 0;
+    symt_get_info_from_symref(info->module, symref, TI_GET_LENGTH, &size);
+    info->sym_info->Size = size;
+    info->sym_info->ModBase = info->module->module.BaseOfImage;
+    info->sym_info->Flags = 0; /* FIXME */
+    info->sym_info->Value = 0; /* FIXME */
+    info->sym_info->Address = 0; /* FIXME */
+    info->sym_info->Register = 0; /* FIXME */
+    info->sym_info->Scope = 0; /* FIXME */
+    symt_get_info_from_symref(info->module, symref, TI_GET_SYMTAG, &info->sym_info->Tag);
+    symbol_setname(info->sym_info, name);
+
+    return (*info->cb)(info->sym_info, info->sym_info->Size, info->user);
+}
+
 static BOOL sym_enum_types(struct module_pair *pair, const char *type_name, PSYM_ENUMERATESYMBOLS_CALLBACK cb, void *user)
 {
+    struct module_format_vtable_iterator iter = {};
     char                buffer[sizeof(SYMBOL_INFO) + 256];
     SYMBOL_INFO        *sym_info = (SYMBOL_INFO*)buffer;
     struct hash_table_iter hti;
     void*               ptr;
     struct symt_ht     *type;
     DWORD64             size;
+    BOOL                hack_only_typedef = FALSE;
 
     sym_info->SizeOfStruct = sizeof(SYMBOL_INFO);
     sym_info->MaxNameLen = sizeof(buffer) - sizeof(SYMBOL_INFO);
+
+    /* FIXME could optim if type_name doesn't contain wild cards */
+    while ((module_format_vtable_iterator_next(pair->effective, &iter,
+                                               MODULE_FORMAT_VTABLE_INDEX(enumerate_types))))
+    {
+        struct sym_modfmt_type_enum info = {pair->effective, sym_info, cb, user, type_name};
+        enum method_result result = iter.modfmt->vtable->enumerate_types(iter.modfmt, sym_modfmt_type_enum_cb, &info);
+
+        switch (result)
+        {
+        case MR_FAILURE:
+            return FALSE;
+        case MR_SUCCESS:
+            return TRUE;
+        case MR_NOT_FOUND:
+            hack_only_typedef = TRUE;
+            break;
+        }
+    }
 
     hash_table_iter_init(&pair->effective->ht_types, &hti, type_name);
     while ((ptr = hash_table_iter_up(&hti)))
@@ -463,6 +515,7 @@ static BOOL sym_enum_types(struct module_pair *pair, const char *type_name, PSYM
         type = CONTAINING_RECORD(ptr, struct symt_ht, hash_elt);
 
         if (type_name && !SymMatchStringA(type->hash_elt.name, type_name, TRUE)) continue;
+        if (hack_only_typedef && !symt_check_tag(&type->symt, SymTagTypedef)) continue;
 
         sym_info->TypeIndex = symt_ptr_to_index(pair->effective, &type->symt);
         sym_info->Index = 0; /* FIXME */
@@ -1120,7 +1173,14 @@ BOOL symt_get_info_from_index(struct module* module, DWORD index,
 BOOL symt_get_info_from_symref(struct module* module, symref_t ref,
                                IMAGEHLP_SYMBOL_TYPE_INFO req, void* pInfo)
 {
-    return symt_get_info(module, (struct symt*)ref, req, pInfo);
+    if (symt_is_symref_ptr(ref))
+        return symt_get_info(module, (struct symt *)ref, req, pInfo);
+    if (module->ops_symref_modfmt)
+    {
+        enum method_result result = module->ops_symref_modfmt->vtable->request_symref_t(module->ops_symref_modfmt, ref, req, pInfo);
+        return result == MR_SUCCESS;
+    }
+    return FALSE;
 }
 
 /******************************************************************
@@ -1147,10 +1207,36 @@ BOOL WINAPI SymGetTypeFromName(HANDLE hProcess, ULONG64 BaseOfDll,
     struct module_pair  pair;
     struct symt*        type;
     DWORD64             size;
+    BOOL                hack_only_typedef = FALSE;
+    struct module_format_vtable_iterator iter = {};
 
     if (!module_init_pair(&pair, hProcess, BaseOfDll)) return FALSE;
+
+    while ((module_format_vtable_iterator_next(pair.effective, &iter,
+                                               MODULE_FORMAT_VTABLE_INDEX(find_type))))
+    {
+        symref_t symref;
+        enum method_result result = iter.modfmt->vtable->find_type(iter.modfmt, Name, &symref);
+        if (result == MR_SUCCESS)
+        {
+            WCHAR *name;
+            Symbol->Index = Symbol->TypeIndex = symt_symref_to_index(pair.effective, symref);
+            symt_get_info_from_symref(pair.effective, symref, TI_GET_SYMNAME, &name);
+            Symbol->NameLen = WideCharToMultiByte(CP_ACP, 0, name, -1, Symbol->Name, Symbol->MaxNameLen, NULL, NULL);
+            if (Symbol->NameLen) Symbol->NameLen--;
+            HeapFree(GetProcessHeap(), 0, name);
+            symt_get_info_from_symref(pair.effective, symref, TI_GET_LENGTH, &size);
+            Symbol->Size = size;
+            Symbol->ModBase = pair.requested->module.BaseOfImage;
+            symt_get_info_from_symref(pair.effective, symref, TI_GET_SYMTAG, &Symbol->Tag);
+            return TRUE;
+        }
+        hack_only_typedef = TRUE;
+    }
+
     type = symt_find_type_by_name(pair.effective, SymTagNull, Name);
     if (!type) return FALSE;
+    if (hack_only_typedef && !symt_check_tag(type, SymTagTypedef)) return FALSE;
     Symbol->Index = Symbol->TypeIndex = symt_ptr_to_index(pair.effective, type);
     symbol_setname(Symbol, symt_get_name(type));
     symt_get_info(pair.effective, type, TI_GET_LENGTH, &size);
