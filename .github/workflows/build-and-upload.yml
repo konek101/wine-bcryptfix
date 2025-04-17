@@ -1,0 +1,36 @@
+on:
+  workflow_dispatch:
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+        #Output build artifacts to /github/workspace/result
+      - name: Build
+        uses: ./.github/build-image
+
+
+      - name: Set version tag
+        id: tag
+        run: |
+          VERSION="v$(date +'%Y%m%d%H%M%S')"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "::set-output name=version::$VERSION"
+
+
+      - name: Create tag
+        run: |
+          git config user.name "github.actions"
+          git config user.email "github-actions@github.com"
+          git tag ${{ steps.tag.outputs.version }}
+          git push origin ${{ steps.tag.outputs.version }}
+
+      - name: Create and upload Github Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.version }}
+          files: /github/workflow/result/wine-astro-wow64.deb
+          token: ${{ secrets.GITHUB_TOKEN }}
