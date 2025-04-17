@@ -77,5 +77,3 @@ cd "$OUTPUT/package" || exit 1
 mkdir -p ./DEBIAN
 cp /control ./DEBIAN/control
 dpkg-deb --build $OUTPUT/package
-ls
-ls /build
