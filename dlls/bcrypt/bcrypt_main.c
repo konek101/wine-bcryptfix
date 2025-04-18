@@ -2000,50 +2000,49 @@ NTSTATUS WINAPI BCryptExportKey(
     if (!type || !size) return STATUS_INVALID_PARAMETER;
 
     if (encrypt_key_handle) {
-        if (wcscmp(type, BCRYPT_RFC3565_KEY_WRAP_BLOB) != 0) {
-            FIXME("Encryption for type %s not supported\n", debugstr_w(type));
-            return STATUS_NOT_IMPLEMENTED;
-        }
-
-        encrypt_key = get_key_object(encrypt_key_handle);
-        if (!encrypt_key || !is_symmetric_key(encrypt_key) || encrypt_key->alg_id != ALG_ID_AES) {
-            return STATUS_INVALID_PARAMETER;
-        }
-
-        // RFC3565: Pad input to 64-bit (8-byte) boundary
-        padded_len = export_key->u.s.secret_len;
-        if (padded_len % 8 != 0) {
-            padded_len += 8 - (padded_len % 8);
-        }
-
-        // RFC3394: Wrapped key size = input size + 8 bytes (IV)
-        required_size = padded_len + 8;
-        *size = required_size;
-
-        if (!output) return STATUS_SUCCESS;
-        if (output_len < required_size) return STATUS_BUFFER_TOO_SMALL;
-
-        // Allocate and pad the input data
-        if (!(padded_input = calloc(1, padded_len))) return STATUS_NO_MEMORY;
-        memcpy(padded_input, export_key->u.s.secret, export_key->u.s.secret_len);
-
-        // Initialize AES key from encrypt_key
-        if (aes_setup(encrypt_key->u.s.secret, encrypt_key->u.s.secret_len, 0, &aes) != CRYPT_OK) {
+        if (!wcscmp(type, L"Rfc3565KeyWrapBlob")) {
+            encrypt_key = get_key_object(encrypt_key_handle);
+            if (!encrypt_key || !is_symmetric_key(encrypt_key) || encrypt_key->alg_id != ALG_ID_AES) {
+                return STATUS_INVALID_PARAMETER;
+            }
+    
+            // RFC3565: Pad input to 64-bit (8-byte) boundary
+            padded_len = export_key->u.s.secret_len;
+            if (padded_len % 8 != 0) {
+                padded_len += 8 - (padded_len % 8);
+            }
+    
+            // RFC3394: Wrapped key size = input size + 8 bytes (IV)
+            required_size = padded_len + 8;
+            *size = required_size;
+    
+            if (!output) return STATUS_SUCCESS;
+            if (output_len < required_size) return STATUS_BUFFER_TOO_SMALL;
+    
+            // Allocate and pad the input data
+            if (!(padded_input = calloc(1, padded_len))) return STATUS_NO_MEMORY;
+            memcpy(padded_input, export_key->u.s.secret, export_key->u.s.secret_len);
+    
+            // Initialize AES key from encrypt_key
+            if (aes_setup(encrypt_key->u.s.secret, encrypt_key->u.s.secret_len, 0, &aes) != CRYPT_OK) {
+                free(padded_input);
+                return STATUS_INTERNAL_ERROR;
+            }
+    
+            // Perform AES Key Wrap (RFC3394)
+            wrapped_len = output_len;
+            if (aes_key_wrap(&aes, padded_input, padded_len / 8, output, &wrapped_len) != CRYPT_OK) {
+                status = STATUS_INTERNAL_ERROR;
+            }
+    
+            // Cleanup
+            aes_done(&aes);
             free(padded_input);
-            return STATUS_INTERNAL_ERROR;
+    
+            return status;
         }
-
-        // Perform AES Key Wrap (RFC3394)
-        wrapped_len = output_len;
-        if (aes_key_wrap(&aes, padded_input, padded_len / 8, output, &wrapped_len) != CRYPT_OK) {
-            status = STATUS_INTERNAL_ERROR;
-        }
-
-        // Cleanup
-        aes_done(&aes);
-        free(padded_input);
-
-        return status;
+        FIXME("Encryption for type %s not supported\n", debugstr_w(type));
+        return STATUS_NOT_IMPLEMENTED;      
     }
 
     // Existing code for other blob types
