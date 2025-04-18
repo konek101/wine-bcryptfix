@@ -1,5 +1,9 @@
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - 'master'
+
 
 jobs:
   build-and-upload:
@@ -31,6 +35,7 @@ jobs:
       - name: Create and upload Github Release
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: true
           tag_name: ${{ steps.tag.outputs.version }}
           files: ${{ github.workspace }}/result/package.deb
           token: ${{ secrets.GITHUB_TOKEN }}
