@@ -46,7 +46,7 @@ if [ -d "$OUTPUT" ]; then
 fi
 
 
-
+export CCACHE_DIR=/github/workspace/.ccache
 # Create build directories
 mkdir -p "$OUTPUT/x32" "$OUTPUT/x64"
 

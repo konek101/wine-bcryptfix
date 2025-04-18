@@ -25,7 +25,11 @@ jobs:
         run: |
           echo "No changes since last run, exiting..."
           exit 0
-
+      - name: Ccache restore
+        uses: actions/cache@v3
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ${{ runner.os }}-build
         #Output build artifacts to /github/workspace/result
       - name: Build
         uses: ./.github/build-image
