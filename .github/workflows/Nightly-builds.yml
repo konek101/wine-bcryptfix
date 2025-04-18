@@ -1,8 +1,7 @@
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - 'master'
+  schedule:
+    - cron: '0 23 * * *'
 
 
 jobs:
@@ -11,6 +10,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check for changes
+        id: diff
+        run: |
+          git log -2 --pretty=oneline
+          CHANGED=$(git diff HEAD^ HEAD --name-only | wc -l)
+          echo "changed_files=$CHANGED" >> $GITHUB_OUTPUT
+
+      - name: Exit if no changes
+        if: steps.diff.outputs.changed_files == '0'
+        run: |
+          echo "No changes since last run, exiting..."
+          exit 0
 
         #Output build artifacts to /github/workspace/result
       - name: Build
