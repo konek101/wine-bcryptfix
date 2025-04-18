@@ -1,0 +1,22 @@
+on:
+  workflow_dispatch:
+
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+        #Output build artifacts to /github/workspace/result
+      - name: Build
+        uses: ./.github/build-image
+
+      - name: Create and upload Github Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          tag_name: ${{ steps.tag.outputs.version }}
+          files: ${{ github.workspace }}/result/package.deb
+          token: ${{ secrets.GITHUB_TOKEN }}
